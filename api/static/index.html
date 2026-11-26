@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mapas Seguros Oaxaca</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{font-family:system-ui,sans-serif;--azul:#12375a}body{margin:0}header{background:var(--azul);color:#fff;padding:.8rem 1rem}
+main{display:grid;grid-template-columns:minmax(220px,280px) 1fr}.panel{padding:1rem;background:#f7f9fb}.aviso{padding:.7rem;background:#fff3cd;color:#5c4700}
+#map{height:78vh}.campo{display:block;margin:.7rem 0}.campo input,.campo select{width:100%;min-height:36px}button{min-height:42px;width:100%;margin:.4rem 0}
+.tarjeta{background:#fff;border-left:4px solid #e05b45;padding:.7rem;margin:.7rem 0}footer{padding:.6rem;text-align:center}
+@media(max-width:700px){main{grid-template-columns:1fr}.panel{order:2}#map{height:62vh}}
+</style>
+</head>
+<body>
+<header><h1>Mapas Seguros Oaxaca</h1><small>Ciudadania - Vision Cero</small></header>
+<div id="avisoDemo" class="aviso" role="alert" hidden><strong>Datos de demostracion:</strong> esta vista usa una base sintética exclusiva de demostración.</div>
+<main>
+<aside class="panel">
+<h2>Filtros</h2>
+<label class="campo">Gravedad<select id="gravedad"><option value="">Todas</option><option>solo danos</option><option>herido</option><option>muerto</option></select></label>
+<label class="campo">Tipo de víctima<select id="usuario"><option value="">Todos</option><option>peaton</option><option>ciclista</option><option>conductor</option><option>pasajero</option><option>otro</option><option>no_especificado</option></select></label>
+<label class="campo">Fecha inicial<input id="fechaIni" type="date"></label>
+<label class="campo">Fecha final<input id="fechaFin" type="date"></label>
+<button id="filtrar">Aplicar filtros</button>
+<label><input id="mostrarInfra" type="checkbox"> Mostrar infraestructura OSM</label>
+<div id="estadoInfra"></div>
+<label class="campo">Modo de viaje<select id="modo"><option value="pie">A pie</option><option value="bici">En bicicleta</option></select></label>
+<button id="ruta">Ruta más corta y alternativa</button>
+<button id="reiniciarRuta">Reiniciar origen y destino</button>
+<div class="tarjeta" id="comparacion">Seleccione origen y destino haciendo clic en el mapa.</div>
+<div class="tarjeta" id="estadoGeo">Cargando puntos georreferenciados...</div>
+<p><small>La exposición histórica no es una probabilidad ni garantiza seguridad; hay accidentes sin coordenadas y faltan aforos.</small></p>
+<a href="/autoridades">Acceso autoridades</a>
+</aside>
+<div id="map" aria-label="Mapa de siniestros"></div>
+</main>
+<footer>© OpenStreetMap contributors · Fuente: INEGI</footer>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map=L.map('map').setView([17.0609,-96.7254],14);
+fetch('/api/modo').then(r=>r.json()).then(modo=>{
+ if(modo.banner_demo) document.querySelector('#avisoDemo').hidden=false;
+});
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap contributors'}).addTo(map);
+let puntos=L.layerGroup().addTo(map), infra=L.layerGroup(), marcadoresRuta=L.layerGroup().addTo(map), origen=null, destino=null, lineaCorta=null, lineaSegura=null;
+document.querySelector('#mostrarInfra').onchange=async e=>{
+ if(!e.target.checked){map.removeLayer(infra);return}
+ try{
+  const respuesta=await fetch('/api/infraestructura');
+  if(!respuesta.ok)throw new Error(`HTTP ${respuesta.status}`);
+  const datos=await respuesta.json();
+  infra.clearLayers();
+  for(const elemento of datos){
+   if(!elemento.geometria)continue;
+   const color=elemento.tipo==='semaforo'?'#1460a2':elemento.tipo==='cruce_peatonal'?'#8b4cb5':'#138444';
+   L.geoJSON(elemento.geometria,{style:{color,weight:4},pointToLayer:(f,l)=>L.circleMarker(l,{radius:5,color})})
+    .bindPopup(elemento.tipo.replace('_',' ')).addTo(infra);
+  }
+  infra.addTo(map);
+  document.querySelector('#estadoInfra').textContent=`${datos.length} elementos OSM: azul semáforos, morado cruces y verde ciclovías.`;
+ }catch(error){e.target.checked=false;document.querySelector('#estadoInfra').textContent='No fue posible cargar infraestructura: '+error.message}
+};
+async function cargar(){
+ puntos.clearLayers();
+ const p=new URLSearchParams();
+ p.set('limite','20000');
+ if(document.querySelector('#gravedad').value)p.set('gravedad',document.querySelector('#gravedad').value);
+ if(document.querySelector('#usuario').value)p.set('tipo_usuario',document.querySelector('#usuario').value);
+ if(document.querySelector('#fechaIni').value)p.set('fecha_ini',document.querySelector('#fechaIni').value);
+ if(document.querySelector('#fechaFin').value)p.set('fecha_fin',document.querySelector('#fechaFin').value);
+ try {
+  const respuesta=await fetch('/api/siniestros?'+p);
+  if(!respuesta.ok) throw new Error(`HTTP ${respuesta.status}`);
+  const fc=await respuesta.json();
+  L.geoJSON(fc,{pointToLayer:(f,l)=>L.circleMarker(l,{radius:4,color:'#d53'}),
+   onEachFeature:(f,capa)=>capa.bindPopup(`Fecha: ${f.properties.fecha_hora}<br>Gravedad: ${f.properties.gravedad}`)}).addTo(puntos);
+  document.querySelector('#estadoGeo').textContent=`${fc.features.length} puntos mostrados de ${fc.total_georreferenciados ?? 0} georreferenciados. No todos los accidentes tienen coordenadas; se muestran únicamente coincidencias no ambiguas con fuentes geográficas.`;
+ } catch(e) {
+  document.querySelector('#estadoGeo').textContent='No fue posible cargar los puntos: '+e.message;
+ }
+}
+document.querySelector('#filtrar').onclick=cargar;
+map.on('click',async e=>{
+ if(!origen){origen=e.latlng;L.marker(e.latlng,{title:'Origen'}).addTo(marcadoresRuta);return}
+ if(!destino){destino=e.latlng;L.marker(e.latlng,{title:'Destino'}).addTo(marcadoresRuta);document.querySelector('#comparacion').textContent='Listo: pulse calcular ruta.'}
+});
+document.querySelector('#reiniciarRuta').onclick=()=>{
+ origen=null;destino=null;marcadoresRuta.clearLayers();
+ if(lineaCorta)map.removeLayer(lineaCorta);if(lineaSegura)map.removeLayer(lineaSegura);
+ lineaCorta=null;lineaSegura=null;document.querySelector('#comparacion').textContent='Seleccione origen y destino haciendo clic en el mapa.';
+};
+document.querySelector('#ruta').onclick=async()=>{
+ if(!origen||!destino){document.querySelector('#comparacion').textContent='Seleccione primero origen y destino.';return}
+ if(lineaCorta)map.removeLayer(lineaCorta);if(lineaSegura)map.removeLayer(lineaSegura);
+ let respuesta;
+ try{
+  const modo=document.querySelector('#modo').value;
+  respuesta=await fetch(`/api/ruta?modo=${modo}&origen=${origen.lat},${origen.lng}&destino=${destino.lat},${destino.lng}`);
+  if(!respuesta.ok)throw new Error(await respuesta.text());
+  const r=await respuesta.json();
+ lineaCorta=L.geoJSON(r.ruta_corta,{style:{color:'#2774ae',weight:5}}).bindPopup('Más corta entre las rutas propuestas por OSRM').addTo(map);
+ if(r.ruta_alternativa) lineaSegura=L.geoJSON(r.ruta_alternativa,{style:{color:'#118c4f',weight:3,dashArray:'8 6'}}).bindPopup('Alternativa entre las rutas propuestas por OSRM').addTo(map);
+ const p=r.ruta_corta.properties;
+ const exposicion=x=>x.indice_historico===null?'Exposición no disponible':`${x.siniestros_cercanos} siniestros cercanos; índice histórico ${x.indice_historico}`;
+ const alt=r.ruta_alternativa ? `<b>Alternativa: ${r.ruta_alternativa.properties.distancia_m} m</b><br>${r.ruta_alternativa.properties.duracion_min} min<br>${exposicion(r.ruta_alternativa.properties)}` : 'OSRM no encontró otra alternativa.';
+ const menor=r.ruta_menor_exposicion ? `Menor índice histórico entre las rutas disponibles: ${r.ruta_menor_exposicion.properties.indice_historico}.` : (r.error_exposicion || 'Sin comparación histórica.');
+ document.querySelector('#comparacion').innerHTML=`<b>Más corta entre ${r.rutas_comparadas} rutas propuestas: ${p.distancia_m} m</b><br>${p.duracion_min} min ${modo==='pie'?'a pie':'en bicicleta'}<br>${exposicion(p)}<br>${alt}<br>${menor}<br>Radio: ${r.radio_m} m. Comparación histórica; no garantiza seguridad.`;
+ }catch(e){document.querySelector('#comparacion').textContent='No fue posible calcular una ruta vial: '+e.message}
+};
+cargar();
+</script>
+</body></html>

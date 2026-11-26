@@ -1,0 +1,59 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>Autoridades - Mapas Seguros Oaxaca</title><style>body{font-family:system-ui;margin:0}header{background:#12375a;color:white;padding:1rem}main{padding:1rem}.login,.panel{max-width:1100px;margin:auto}.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1rem}.kpi{background:#eef3f7;padding:1rem;border-radius:8px}table{width:100%;border-collapse:collapse}th,td{padding:.6rem;border-bottom:1px solid #ccc}.acciones a{display:inline-block;margin:.4rem;padding:.7rem;background:#12375a;color:white;text-decoration:none}[hidden]{display:none}</style></head>
+<body><header><h1>Panel de Autoridades</h1></header><main>
+<section id="login" class="login"><h2>Iniciar sesion</h2><form id="form"><input id="usuario" aria-label="Usuario" required><input id="clave" aria-label="Clave" type="password" required><button>Entrar</button></form></section>
+<section id="panel" class="panel" hidden><div class="kpis" id="kpis"></div>
+<h2>Siniestros por vialidad y cruce</h2><p id="notaVialidades"></p><table><thead><tr><th>Vialidad</th><th>Cruce</th><th>Siniestros</th><th>Muertos</th><th>Heridos</th></tr></thead><tbody id="vialidades"></tbody></table>
+<h2>Comparativo INEGI</h2><table><thead><tr><th>Año</th><th>Municipio</th><th>Estado</th><th>Fuente estatal</th></tr></thead><tbody id="indicadores"></tbody></table>
+<h2>Ranking de colonias</h2><table><thead><tr><th>Colonia</th><th>Siniestros</th></tr></thead><tbody id="colonias"></tbody></table><h2>Calidad de datos</h2><pre id="calidad"></pre><div class="acciones"><a id="csv">Descargar CSV</a><a id="pdf">Descargar PDF</a></div></section>
+</main><script>
+let token='';
+document.querySelector('#form').onsubmit=async e=>{
+ e.preventDefault();
+ const usuario=document.querySelector('#usuario').value;
+ const clave=document.querySelector('#clave').value;
+ const respuesta=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({usuario,clave})});
+ if(!respuesta.ok){alert('Usuario o clave incorrectos');return}
+ token=(await respuesta.json()).access_token;
+ document.querySelector('#login').hidden=true;
+ document.querySelector('#panel').hidden=false;
+ cargar();
+};
+async function cargar(){
+ const headers={Authorization:`Bearer ${token}`};
+ const k=await(await fetch('/api/autoridades/kpis',{headers})).json();
+ document.querySelector('#kpis').innerHTML=[
+  ['Siniestros',k.total_siniestros],['Muertos',k.muertos],['Heridos',k.heridos],['Vulnerables',k.porcentaje_vulnerables+'%']
+ ].map(x=>`<div class="kpi"><strong>${x[1]}</strong><br>${x[0]}</div>`).join('');
+ const tabla=(selector,filas)=>{const cuerpo=document.querySelector(selector);cuerpo.replaceChildren();
+  for(const fila of filas){const tr=document.createElement('tr');for(const valor of fila){const td=document.createElement('td');td.textContent=valor ?? 'No disponible';tr.append(td)}cuerpo.append(tr)}};
+ const vialidades=await fetch('/api/autoridades/ranking-vialidades',{headers});
+ if(vialidades.ok){const v=await vialidades.json();document.querySelector('#notaVialidades').textContent=v.nota;
+  tabla('#vialidades',v.resultados.map(x=>[x.calle1,x.calle2,x.siniestros,x.muertos,x.heridos]));}
+ else{document.querySelector('#notaVialidades').textContent='No fue posible cargar el ranking de vialidades.'}
+ const comparativo=await fetch('/api/autoridades/comparativo-inegi',{headers});
+ if(comparativo.ok){const c=await comparativo.json();tabla('#indicadores',c.map(x=>[x.anio,x.municipal_dw,x.inegi_estatal,x.fuente_dato]));}
+ else{tabla('#indicadores',[['No fue posible cargar los indicadores']]);}
+ const coloniasRespuesta=await fetch('/api/autoridades/ranking-colonias',{headers});
+ if(coloniasRespuesta.ok){
+  const c=await coloniasRespuesta.json();
+  document.querySelector('#colonias').innerHTML=c.map(x=>`<tr><td>${x.colonia}</td><td>${x.siniestros}</td></tr>`).join('');
+ }else{
+  const error=await coloniasRespuesta.json();
+  document.querySelector('#colonias').textContent=error.detail;
+ }
+ document.querySelector('#kpis').insertAdjacentHTML('beforeend',`<p>${k.nota_vulnerables || ''}</p>`);
+ const q=await(await fetch('/api/autoridades/calidad-datos',{headers})).json();
+ document.querySelector('#calidad').textContent=JSON.stringify(q,null,2);
+ document.querySelector('#csv').href='/api/autoridades/reporte.csv';
+ document.querySelector('#pdf').href='/api/autoridades/reporte.pdf';
+ document.querySelector('#csv').setAttribute('download','reporte.csv');
+ document.querySelector('#csv').onclick=async e=>{e.preventDefault();await descargar(e.currentTarget.href,'text/csv')};
+ document.querySelector('#pdf').onclick=async e=>{e.preventDefault();await descargar(e.currentTarget.href,'application/pdf')};
+}
+async function descargar(url,tipo){
+ const r=await fetch(url,{headers:{Authorization:`Bearer ${token}`}});
+ const blob=await r.blob();
+ const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=tipo.includes('pdf')?'reporte_siniestros.pdf':'reporte_siniestros.csv';a.click();URL.revokeObjectURL(a.href);
+}
+</script>

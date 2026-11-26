@@ -1,0 +1,25 @@
+services:
+  db:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: mapas_seguros
+      MYSQL_USER: mapas
+      MYSQL_PASSWORD: mapas
+      MYSQL_ROOT_PASSWORD: root
+    ports: ["127.0.0.1:3307:3306"]
+    volumes:
+      - datos_db:/var/lib/mysql
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -proot || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  api:
+    build: .
+    environment:
+      DATABASE_URL: mysql+pymysql://mapas:mapas@db:3306/mapas_seguros
+    ports: ["127.0.0.1:8000:8000"]
+    depends_on: [db]
+volumes:
+  datos_db:

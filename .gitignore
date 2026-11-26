@@ -1,0 +1,10 @@
+.env
+__pycache__/
+.pytest_cache/
+*.pyc
+data/raw/*
+data/processed/*
+data/staging/*
+reports/*
+!reports/.gitkeep
+*.sqlite3

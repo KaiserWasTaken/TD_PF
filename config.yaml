@@ -1,0 +1,53 @@
+zona:
+  entidad: 20
+  municipio: 20067
+  nombre: Oaxaca de Juarez
+  centro: [17.0609, -96.7254]
+  radio_prueba_m: 2000
+  destino: [17.0658, -96.7229]
+etl:
+  semilla: 20261117
+  registros_sinteticos: 4000
+  anios: [2020, 2021, 2022, 2023, 2024, 2025]
+  base_datos: ${DATABASE_URL}
+riesgo:
+  pesos_gravedad: {"solo danos": 1, "herido": 3, "muerto": 10}
+  proximidad_ruta_m: 50
+  multiplicador_vulnerable: 1.5
+  mitigacion_infraestructura: 0.05
+  lambda_ruta: 3.0
+limpieza:
+  max_distancia_vial_m: 100
+extraccion:
+  inegi_indicador_url: "https://www.inegi.org.mx/app/api/indicadores/desarrolladores/jsonxml/INDICATOR/1006000039/es/20/false/BISE/2.0"
+  overpass_url: "https://overpass-api.de/api/interpreter"
+  osrm_foot_url: "https://routing.openstreetmap.de/routed-foot/route/v1/driving"
+  osrm_bike_url: "https://routing.openstreetmap.de/routed-bike/route/v1/driving"
+  timeout_s: 180
+  reintentos: 3
+atus:
+  mapeo_columnas:
+    entidad: [CVE_ENT, ID_ENTIDAD, ID_ENTIDAD_FEDERATIVA]
+    municipio: [CVE_MUN, ID_MUNICIPIO, CVE_MUN_INEGI]
+    clave_geo: [CVEGEO]
+    anio: [ANIO, ID_ANIO]
+    mes: [MES, ID_MES]
+    dia: [ID_DIA, DIASEMANA]
+    hora: [ID_HORA]
+    minuto: [ID_MINUTO]
+    tipo_siniestro: [TIPACCID, TIPO_ACCIDENTE]
+    gravedad: [CLASACC, CLASIFICACION_ACCIDENTE]
+    latitud: [LATITUD, LAT, Y, LONG_Y]
+    longitud: [LONGITUD, LON, X, LONG_X]
+    peat_muerto: [PEATMUERTO]
+    peat_herido: [PEATHERIDO]
+    ciclista_muerto: [CICLMUERTO]
+    ciclista_herido: [CICLHERIDO]
+    conductor_muerto: [CONDMUERTO]
+    conductor_herido: [CONDHERIDO]
+    pasajero_muerto: [PASAMUERTO]
+    pasajero_herido: [PASAHERIDO]
+    otro_muerto: [OTROMUERTO]
+    otro_herido: [OTROHERIDO]
+    ne_muerto: [NEMUERTO]
+    ne_herido: [NEHERIDO]
