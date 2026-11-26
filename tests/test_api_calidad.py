@@ -1,9 +1,50 @@
+from datetime import date
+
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
 from api import main
 from etl import real
+
+
+def datos_por_periodo():
+    return pd.DataFrame([
+        {"fecha_hora": "2025-01-31 00:00:00", "gravedad": "herido",
+         "num_muertos": 0, "num_heridos": 1, "usuarios_afectados": "peaton"},
+        {"fecha_hora": "2025-01-31 23:59:00", "gravedad": "muerto",
+         "num_muertos": 1, "num_heridos": 0, "usuarios_afectados": "ciclista"},
+        {"fecha_hora": "2025-02-01 00:00:00", "gravedad": "solo danos",
+         "num_muertos": 0, "num_heridos": 0, "usuarios_afectados": ""},
+    ]).assign(fecha_hora=lambda df: pd.to_datetime(df["fecha_hora"]))
+
+
+def test_kpis_filtra_periodo_inclusivo(monkeypatch):
+    monkeypatch.setattr(main, "datos", datos_por_periodo)
+
+    resultado = main.kpis(fecha_ini=date(2025, 1, 31), fecha_fin=date(2025, 1, 31))
+
+    assert resultado["total_siniestros"] == 2
+    assert resultado["muertos"] == 1
+    assert resultado["heridos"] == 1
+    assert resultado["porcentaje_vulnerables"] == 100
+
+
+def test_tendencia_filtra_el_mismo_periodo(monkeypatch):
+    monkeypatch.setattr(main, "datos", datos_por_periodo)
+
+    resultado = main.tendencia(fecha_ini=date(2025, 1, 31), fecha_fin=date(2025, 1, 31))
+
+    assert resultado == [{"periodo": "2025-01", "siniestros": 2}]
+
+
+def test_kpis_rechaza_periodo_invertido(monkeypatch):
+    monkeypatch.setattr(main, "datos", datos_por_periodo)
+
+    with pytest.raises(main.HTTPException) as error:
+        main.kpis(fecha_ini=date(2025, 2, 1), fecha_fin=date(2025, 1, 31))
+
+    assert error.value.status_code == 422
 
 
 def test_kpis_y_reportes_cuentan_personas_no_accidentes(monkeypatch):
