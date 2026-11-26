@@ -61,6 +61,20 @@ def datos():
     return df
 
 
+def validar_periodo(fecha_ini, fecha_fin):
+    if fecha_ini and fecha_fin and fecha_ini > fecha_fin:
+        raise HTTPException(422, "fecha_ini no puede ser posterior a fecha_fin.")
+
+
+def filtrar_periodo(df, fecha_ini=None, fecha_fin=None):
+    validar_periodo(fecha_ini, fecha_fin)
+    if fecha_ini:
+        df = df[df["fecha_hora"] >= pd.Timestamp(fecha_ini)]
+    if fecha_fin:
+        df = df[df["fecha_hora"] < pd.Timestamp(fecha_fin + timedelta(days=1))]
+    return df
+
+
 def autoridad_actual(credencial: HTTPAuthorizationCredentials | None = Depends(bearer)):
     if credencial is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Se requiere autenticacion")
@@ -130,14 +144,10 @@ def siniestros(
     bbox: str | None = None,
     limite: int = Query(5000, ge=1, le=20000),
 ):
-    df = datos()
+    df = filtrar_periodo(datos(), fecha_ini, fecha_fin)
     if df.empty:
         return {"type": "FeatureCollection", "features": [], "fuente": "ninguna",
                 "total_georreferenciados": 0}
-    if fecha_ini:
-        df = df[df["fecha_hora"] >= pd.Timestamp(fecha_ini)]
-    if fecha_fin:
-        df = df[df["fecha_hora"] < pd.Timestamp(fecha_fin) + pd.Timedelta(days=1)]
     if hora_ini is not None:
         df = df[df["fecha_hora"].dt.hour >= hora_ini]
     if hora_fin is not None:
@@ -363,8 +373,9 @@ def limite_oaxaca():
 
 
 @app.get("/api/autoridades/kpis")
-def kpis(usuario=Depends(autoridad_actual)):
-    df = datos()
+def kpis(fecha_ini: date | None = None, fecha_fin: date | None = None,
+         usuario=Depends(autoridad_actual)):
+    df = filtrar_periodo(datos(), fecha_ini, fecha_fin)
     if df.empty:
         return {"total_siniestros": 0, "muertos": 0, "heridos": 0, "porcentaje_vulnerables": 0,
                 "fuente": "inegi_atus"}
@@ -385,12 +396,22 @@ def ranking_tramos(usuario=Depends(autoridad_actual)):
 
 
 @app.get("/api/autoridades/ranking-vialidades")
-def ranking_vialidades(usuario=Depends(autoridad_actual)):
+def ranking_vialidades(fecha_ini: date | None = None, fecha_fin: date | None = None,
+                       usuario=Depends(autoridad_actual)):
+    validar_periodo(fecha_ini, fecha_fin)
     cargar_env()
     url = os.getenv("DATABASE_URL", "")
     if not url.startswith("mysql"):
         raise HTTPException(503, "No hay una base MySQL real disponible")
     engine = create_engine(url, pool_pre_ping=True)
+    condiciones = ["g.calle1 IS NOT NULL", "TRIM(g.calle1)<>''", "s.fuente='inegi_atus'"]
+    parametros = {}
+    if fecha_ini:
+        condiciones.append("s.fecha_hora >= :fecha_ini")
+        parametros["fecha_ini"] = fecha_ini
+    if fecha_fin:
+        condiciones.append("s.fecha_hora < :fecha_fin")
+        parametros["fecha_fin"] = fecha_fin + timedelta(days=1)
     with engine.connect() as conexion:
         filas = conexion.execute(text("""
             SELECT TRIM(g.calle1) AS calle1, NULLIF(TRIM(g.calle2),'') AS calle2,
@@ -398,12 +419,11 @@ def ranking_vialidades(usuario=Depends(autoridad_actual)):
                    SUM(s.num_heridos) AS heridos
             FROM siniestro_georreferencia g
             JOIN analytics_siniestro s ON s.id=g.siniestro_id
-            WHERE g.calle1 IS NOT NULL AND TRIM(g.calle1)<>''
-              AND s.fuente='inegi_atus'
+            WHERE """ + " AND ".join(condiciones) + """
             GROUP BY TRIM(g.calle1), NULLIF(TRIM(g.calle2),'')
             ORDER BY siniestros DESC, calle1, calle2
             LIMIT 20
-        """)).mappings().all()
+        """), parametros).mappings().all()
     return {"resultados": [dict(fila) for fila in filas],
             "nota": "Conteos por nombres de vialidades reportados por ATUS; "
                     "no representan tramos geométricos ni riesgo ajustado por tráfico."}
@@ -415,8 +435,9 @@ def ranking_colonias(usuario=Depends(autoridad_actual)):
 
 
 @app.get("/api/autoridades/puntos-criticos")
-def puntos_criticos(usuario=Depends(autoridad_actual)):
-    df = datos()
+def puntos_criticos(fecha_ini: date | None = None, fecha_fin: date | None = None,
+                    usuario=Depends(autoridad_actual)):
+    df = filtrar_periodo(datos(), fecha_ini, fecha_fin)
     if df.empty:
         return []
     agrupado = df.groupby([df["latitud"].round(3), df["longitud"].round(3)]).size().sort_values(ascending=False)
@@ -425,8 +446,9 @@ def puntos_criticos(usuario=Depends(autoridad_actual)):
 
 
 @app.get("/api/autoridades/tendencia")
-def tendencia(usuario=Depends(autoridad_actual)):
-    df = datos()
+def tendencia(fecha_ini: date | None = None, fecha_fin: date | None = None,
+              usuario=Depends(autoridad_actual)):
+    df = filtrar_periodo(datos(), fecha_ini, fecha_fin)
     if df.empty:
         return []
     serie = df.groupby(df["fecha_hora"].dt.to_period("M").astype(str)).size()
@@ -434,8 +456,9 @@ def tendencia(usuario=Depends(autoridad_actual)):
 
 
 @app.get("/api/autoridades/matriz-hora-dia")
-def matriz(usuario=Depends(autoridad_actual)):
-    df = datos()
+def matriz(fecha_ini: date | None = None, fecha_fin: date | None = None,
+           usuario=Depends(autoridad_actual)):
+    df = filtrar_periodo(datos(), fecha_ini, fecha_fin)
     if df.empty:
         return []
     dias = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"]
@@ -445,8 +468,9 @@ def matriz(usuario=Depends(autoridad_actual)):
 
 
 @app.get("/api/autoridades/comparativo-inegi")
-def comparativo(usuario=Depends(autoridad_actual)):
-    df = datos()
+def comparativo(fecha_ini: date | None = None, fecha_fin: date | None = None,
+                usuario=Depends(autoridad_actual)):
+    df = filtrar_periodo(datos(), fecha_ini, fecha_fin)
     if df.empty:
         return []
     municipal = df.groupby(df["fecha_hora"].dt.year).size()
@@ -460,17 +484,25 @@ def comparativo(usuario=Depends(autoridad_actual)):
             SELECT anio, valor, fuente_dato FROM indicador_anual
             WHERE clave_indicador='1006000039'
         """)).mappings().all()
-    por_anio = {fila["anio"]: fila for fila in indicadores}
+    por_anio = {
+        fila["anio"]: fila for fila in indicadores
+        if (not fecha_ini or fecha_ini <= date(fila["anio"], 1, 1))
+        and (not fecha_fin or fecha_fin >= date(fila["anio"], 12, 31))
+    }
     return [{"anio": int(anio), "municipal_dw": int(municipal.get(anio, 0)),
              "inegi_estatal": por_anio[anio]["valor"] if anio in por_anio else None,
              "fuente_dato": por_anio[anio]["fuente_dato"] if anio in por_anio else None,
-             "nota": "Indicador estatal no disponible" if anio not in por_anio else "INEGI estatal; ATUS municipal"}
+             "nota": ("INEGI estatal anual no comparable con el periodo seleccionado"
+                      if anio not in por_anio and (fecha_ini or fecha_fin)
+                      else "Indicador estatal no disponible" if anio not in por_anio
+                      else "INEGI estatal; ATUS municipal")}
             for anio in sorted(set(municipal.index).union(por_anio))]
 
 
 @app.get("/api/autoridades/calidad-datos")
-def calidad(usuario=Depends(autoridad_actual)):
-    df = datos()
+def calidad(fecha_ini: date | None = None, fecha_fin: date | None = None,
+            usuario=Depends(autoridad_actual)):
+    df = filtrar_periodo(datos(), fecha_ini, fecha_fin)
     if df.empty:
         return {"siniestros": 0, "georreferenciados": 0, "por_anio": []}
     df = df.assign(georreferenciado=df["latitud"].notna() & df["longitud"].notna())
@@ -488,11 +520,14 @@ def calidad(usuario=Depends(autoridad_actual)):
 
 
 @app.get("/api/autoridades/reporte.csv")
-def reporte_csv(usuario=Depends(autoridad_actual)):
-    df = datos()
+def reporte_csv(fecha_ini: date | None = None, fecha_fin: date | None = None,
+                usuario=Depends(autoridad_actual)):
+    df = filtrar_periodo(datos(), fecha_ini, fecha_fin)
     salida = io.StringIO()
     escritor = csv.writer(salida)
     escritor.writerow(["kpi", "valor"])
+    escritor.writerow(["fecha_ini", fecha_ini.isoformat() if fecha_ini else "inicio"])
+    escritor.writerow(["fecha_fin", fecha_fin.isoformat() if fecha_fin else "fin"])
     escritor.writerow(["total_siniestros", len(df)])
     escritor.writerow(["muertos", int(df["num_muertos"].sum()) if not df.empty else 0])
     escritor.writerow(["heridos", int(df["num_heridos"].sum()) if not df.empty else 0])
@@ -502,18 +537,20 @@ def reporte_csv(usuario=Depends(autoridad_actual)):
 
 
 @app.get("/api/autoridades/reporte.pdf")
-def reporte_pdf(usuario=Depends(autoridad_actual)):
-    df = datos()
+def reporte_pdf(fecha_ini: date | None = None, fecha_fin: date | None = None,
+                usuario=Depends(autoridad_actual)):
+    df = filtrar_periodo(datos(), fecha_ini, fecha_fin)
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=letter)
     pdf.setTitle("Reporte de siniestros")
     pdf.drawString(50, 750, "Reporte de siniestros viales - Oaxaca de Juarez")
     pdf.drawString(50, 735, "Fuente: INEGI ATUS")
-    pdf.drawString(50, 720, f"Total: {len(df)}")
-    pdf.drawString(50, 705, f"Muertos: {int(df['num_muertos'].sum()) if not df.empty else 0}")
-    pdf.drawString(50, 690, f"Heridos: {int(df['num_heridos'].sum()) if not df.empty else 0}")
-    pdf.drawString(50, 675, "Limitacion: subregistro y falta de aforos.")
-    pdf.drawString(50, 660, "© OpenStreetMap contributors")
+    pdf.drawString(50, 720, f"Periodo: {fecha_ini or 'inicio'} a {fecha_fin or 'fin'}")
+    pdf.drawString(50, 705, f"Total: {len(df)}")
+    pdf.drawString(50, 690, f"Muertos: {int(df['num_muertos'].sum()) if not df.empty else 0}")
+    pdf.drawString(50, 675, f"Heridos: {int(df['num_heridos'].sum()) if not df.empty else 0}")
+    pdf.drawString(50, 660, "Limitacion: subregistro y falta de aforos.")
+    pdf.drawString(50, 645, "© OpenStreetMap contributors")
     pdf.save()
     buffer.seek(0)
     return StreamingResponse(buffer, media_type="application/pdf",

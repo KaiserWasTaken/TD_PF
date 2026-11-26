@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from datetime import date
 
 import pandas as pd
@@ -36,6 +37,52 @@ def test_tendencia_filtra_el_mismo_periodo(monkeypatch):
     resultado = main.tendencia(fecha_ini=date(2025, 1, 31), fecha_fin=date(2025, 1, 31))
 
     assert resultado == [{"periodo": "2025-01", "siniestros": 2}]
+
+
+def test_api_kpis_recibe_periodo_por_query(monkeypatch):
+    monkeypatch.setattr(main, "datos", datos_por_periodo)
+    monkeypatch.setitem(main.app.dependency_overrides, main.autoridad_actual, lambda: {})
+
+    respuesta = TestClient(main.app).get(
+        "/api/autoridades/kpis",
+        params={"fecha_ini": "2025-01-31", "fecha_fin": "2025-01-31"},
+    )
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["total_siniestros"] == 2
+
+
+def test_ranking_vialidades_pasa_fechas_como_parametros(monkeypatch):
+    class Resultado:
+        def mappings(self):
+            return self
+
+        def all(self):
+            return []
+
+    class Conexion:
+        def execute(self, consulta, parametros):
+            self.consulta = str(consulta)
+            self.parametros = parametros
+            return Resultado()
+
+    class Engine:
+        def connect(self):
+            return nullcontext(conexion)
+
+    conexion = Conexion()
+    monkeypatch.setattr(main, "cargar_env", lambda: None)
+    monkeypatch.setattr(main, "create_engine", lambda *args, **kwargs: Engine())
+    monkeypatch.setenv("DATABASE_URL", "mysql://test")
+
+    main.ranking_vialidades(fecha_ini=date(2025, 1, 31), fecha_fin=date(2025, 1, 31))
+
+    assert conexion.parametros == {
+        "fecha_ini": date(2025, 1, 31),
+        "fecha_fin": date(2025, 2, 1),
+    }
+    assert "s.fecha_hora >= :fecha_ini" in conexion.consulta
+    assert "s.fecha_hora < :fecha_fin" in conexion.consulta
 
 
 def test_kpis_rechaza_periodo_invertido(monkeypatch):
