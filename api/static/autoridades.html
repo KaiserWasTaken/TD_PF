@@ -1,13 +1,17 @@
 <!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>Autoridades - Mapas Seguros Oaxaca</title><style>body{font-family:system-ui;margin:0}header{background:#12375a;color:white;padding:1rem}main{padding:1rem}.login,.panel{max-width:1100px;margin:auto}.periodo{background:#f4f7fa;padding:1rem;margin-bottom:1rem}.periodo label{display:inline-block;margin:.4rem}.periodo input{display:block;min-height:36px}.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1rem}.kpi{background:#eef3f7;padding:1rem;border-radius:8px}table{width:100%;border-collapse:collapse}th,td{padding:.6rem;border-bottom:1px solid #ccc}.acciones a{display:inline-block;margin:.4rem;padding:.7rem;background:#12375a;color:white;text-decoration:none}[hidden]{display:none}</style></head>
+<title>Autoridades - Mapas Seguros Oaxaca</title><style>body{font-family:system-ui;margin:0}header{background:#12375a;color:white;padding:1rem}main{padding:1rem}.login,.panel{max-width:1100px;margin:auto}.periodo{background:#f4f7fa;padding:1rem;margin-bottom:1rem}.periodo label{display:inline-block;margin:.4rem}.periodo input{display:block;min-height:36px}.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1rem}.kpi{background:#eef3f7;padding:1rem;border-radius:8px}.grafica{position:relative;height:320px;margin:1rem 0 2rem}.grafica-larga{height:420px}.heatmap-wrap{overflow-x:auto}.heatmap{min-width:780px}.heatmap th,.heatmap td{text-align:center;min-width:2rem;font-variant-numeric:tabular-nums}.heatmap td{padding:.4rem}table{width:100%;border-collapse:collapse}th,td{padding:.6rem;border-bottom:1px solid #ccc}.acciones a{display:inline-block;margin:.4rem;padding:.7rem;background:#12375a;color:white;text-decoration:none}[hidden]{display:none}@media(max-width:700px){.grafica{height:280px}.grafica-larga{height:360px}}</style></head>
 <body><header><h1>Panel de Autoridades</h1></header><main>
 <section id="login" class="login"><h2>Iniciar sesion</h2><form id="form"><input id="usuario" aria-label="Usuario" required><input id="clave" aria-label="Clave" type="password" required><button>Entrar</button></form></section>
 <section id="panel" class="panel" hidden><div class="periodo"><h2>Periodo</h2><label>Desde<input id="fechaIni" type="date"></label><label>Hasta<input id="fechaFin" type="date"></label><button id="aplicarPeriodo" type="button">Aplicar periodo</button><p id="estadoPeriodo" role="status" aria-live="polite">Mostrando todos los datos.</p></div><div class="kpis" id="kpis"></div>
-<h2>Siniestros por vialidad y cruce</h2><p id="notaVialidades"></p><table><thead><tr><th>Vialidad</th><th>Cruce</th><th>Siniestros</th><th>Muertos</th><th>Heridos</th></tr></thead><tbody id="vialidades"></tbody></table>
+<h2>Siniestros por mes</h2><p id="estadoTendencia" role="status" aria-live="polite"></p><div class="grafica"><canvas id="graficaTendencia" role="img" aria-label="Gráfica de tendencia mensual de siniestros"></canvas></div>
+<h2>Concentración por día y hora</h2><p id="estadoMatriz" role="status" aria-live="polite"></p><div class="heatmap-wrap"><table class="heatmap" id="matrizHoraDia" aria-describedby="estadoMatriz"></table></div>
+<h2>Vialidades con más siniestros</h2><p id="notaVialidades"></p><p id="estadoGraficaVialidades" role="status" aria-live="polite"></p><div class="grafica grafica-larga"><canvas id="graficaVialidades" role="img" aria-label="Gráfica de las diez vialidades con más siniestros"></canvas></div><details><summary>Ver conteos por vialidad y cruce</summary><table><thead><tr><th>Vialidad</th><th>Cruce</th><th>Siniestros</th><th>Muertos</th><th>Heridos</th></tr></thead><tbody id="vialidades"></tbody></table></details>
 <h2>Comparativo INEGI</h2><p id="notaComparativo"></p><table><thead><tr><th>Año</th><th>Municipio</th><th>Estado</th><th>Fuente estatal</th></tr></thead><tbody id="indicadores"></tbody></table>
 <h2>Ranking de colonias</h2><table><thead><tr><th>Colonia</th><th>Siniestros</th></tr></thead><tbody id="colonias"></tbody></table><h2>Calidad de datos</h2><pre id="calidad"></pre><div class="acciones"><a id="csv">Descargar CSV</a><a id="pdf">Descargar PDF</a></div></section>
-</main><script>
+</main><script src="https://cdn.jsdelivr.net/npm/chart.js@4.6.2/dist/chart.umd.min.js" crossorigin="anonymous"></script><script>
 let token='';
+let graficaTendencia=null;
+let graficaVialidades=null;
 function conPeriodo(url){
  const parametros=new URLSearchParams();
  const fechaIni=document.querySelector('#fechaIni').value;
@@ -16,6 +20,72 @@ function conPeriodo(url){
  if(fechaFin)parametros.set('fecha_fin',fechaFin);
  const query=parametros.toString();
  return query?`${url}?${query}`:url;
+}
+function dibujarTendencia(filas){
+ const estado=document.querySelector('#estadoTendencia');
+ if(typeof Chart==='undefined'){estado.textContent='Chart.js no esta disponible; revise la conexion a internet.';return}
+ if(graficaTendencia)graficaTendencia.destroy();
+ estado.textContent=filas.length?`${filas.length} meses en el periodo seleccionado.`:'No hay siniestros para el periodo seleccionado.';
+ graficaTendencia=new Chart(document.querySelector('#graficaTendencia'),{
+  type:'line',
+  data:{labels:filas.map(f=>f.periodo),datasets:[{label:'Siniestros',data:filas.map(f=>f.siniestros),
+   borderColor:'#2774ae',backgroundColor:'rgba(39,116,174,.16)',fill:true,tension:.2}]},
+  options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+   scales:{x:{title:{display:true,text:'Mes'}},y:{beginAtZero:true,ticks:{precision:0},title:{display:true,text:'Siniestros'}}}}
+ });
+}
+function dibujarVialidades(filas){
+ const estado=document.querySelector('#estadoGraficaVialidades');
+ if(typeof Chart==='undefined'){estado.textContent='Chart.js no esta disponible; revise la conexion a internet.';return}
+ if(graficaVialidades)graficaVialidades.destroy();
+ const principales=filas.slice(0,10);
+ estado.textContent=principales.length?`Se muestran ${principales.length} de las vialidades con más reportes.`:'No hay vialidades para el periodo seleccionado.';
+ graficaVialidades=new Chart(document.querySelector('#graficaVialidades'),{
+  type:'bar',
+  data:{labels:principales.map(f=>`${f.calle1}${f.calle2?` / ${f.calle2}`:''}`),
+   datasets:[{label:'Siniestros',data:principales.map(f=>f.siniestros),backgroundColor:'#2774ae'}]},
+  options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+   scales:{x:{beginAtZero:true,ticks:{precision:0},title:{display:true,text:'Siniestros'}}}}
+ });
+}
+function dibujarMatriz(filas){
+ const dias=[['lunes','Lunes'],['martes','Martes'],['miercoles','Miércoles'],
+  ['jueves','Jueves'],['viernes','Viernes'],['sabado','Sábado'],['domingo','Domingo']];
+ const conteos=new Map(filas.map(f=>[`${f.dia}-${f.hora}`,f.siniestros]));
+ const maximo=Math.max(0,...filas.map(f=>f.siniestros));
+ const tabla=document.querySelector('#matrizHoraDia');
+ const encabezado=document.createElement('thead');
+ const filaEncabezado=document.createElement('tr');
+ const esquina=document.createElement('th');
+ esquina.scope='col';
+ esquina.textContent='Hora';
+ filaEncabezado.append(esquina);
+ for(const [,nombre] of dias){const th=document.createElement('th');th.scope='col';th.textContent=nombre;filaEncabezado.append(th)}
+ encabezado.append(filaEncabezado);
+ const cuerpo=document.createElement('tbody');
+ for(let hora=0;hora<24;hora++){
+  const tr=document.createElement('tr');
+  const th=document.createElement('th');
+  th.scope='row';
+  th.textContent=String(hora).padStart(2,'0')+':00';
+  tr.append(th);
+  for(const [dia,nombre] of dias){
+   const cantidad=conteos.get(`${dia}-${hora}`)||0;
+   const td=document.createElement('td');
+   td.textContent=String(cantidad);
+   td.setAttribute('aria-label',`${nombre}, ${hora}:00: ${cantidad} siniestros`);
+   if(cantidad&&maximo){
+    const intensidad=.12+.78*cantidad/maximo;
+    td.style.backgroundColor=`rgba(18,55,90,${intensidad})`;
+    td.style.color=intensidad>.58?'#fff':'#12375a';
+   }
+   tr.append(td);
+  }
+  cuerpo.append(tr);
+ }
+ tabla.replaceChildren(encabezado,cuerpo);
+ document.querySelector('#estadoMatriz').textContent=filas.length?
+  'Cada celda muestra el número de siniestros; el color más oscuro indica un conteo mayor.':'No hay siniestros para el periodo seleccionado.';
 }
 document.querySelector('#form').onsubmit=async e=>{
  e.preventDefault();
@@ -34,12 +104,19 @@ async function cargar(){
  document.querySelector('#kpis').innerHTML=[
   ['Siniestros',k.total_siniestros],['Muertos',k.muertos],['Heridos',k.heridos],['Vulnerables',k.porcentaje_vulnerables+'%']
  ].map(x=>`<div class="kpi"><strong>${x[1]}</strong><br>${x[0]}</div>`).join('');
+ const tendencia=await fetch(conPeriodo('/api/autoridades/tendencia'),{headers});
+ if(tendencia.ok){dibujarTendencia(await tendencia.json());}
+ else{document.querySelector('#estadoTendencia').textContent='No fue posible cargar la tendencia.'}
+ const matriz=await fetch(conPeriodo('/api/autoridades/matriz-hora-dia'),{headers});
+ if(matriz.ok){dibujarMatriz(await matriz.json());}
+ else{document.querySelector('#estadoMatriz').textContent='No fue posible cargar la matriz horaria.'}
  const tabla=(selector,filas)=>{const cuerpo=document.querySelector(selector);cuerpo.replaceChildren();
   for(const fila of filas){const tr=document.createElement('tr');for(const valor of fila){const td=document.createElement('td');td.textContent=valor ?? 'No disponible';tr.append(td)}cuerpo.append(tr)}};
  const vialidades=await fetch(conPeriodo('/api/autoridades/ranking-vialidades'),{headers});
  if(vialidades.ok){const v=await vialidades.json();document.querySelector('#notaVialidades').textContent=v.nota;
+  dibujarVialidades(v.resultados);
   tabla('#vialidades',v.resultados.map(x=>[x.calle1,x.calle2,x.siniestros,x.muertos,x.heridos]));}
- else{document.querySelector('#notaVialidades').textContent='No fue posible cargar el ranking de vialidades.'}
+ else{document.querySelector('#notaVialidades').textContent='No fue posible cargar el ranking de vialidades.';document.querySelector('#estadoGraficaVialidades').textContent='No fue posible cargar las vialidades.'}
  const comparativo=await fetch(conPeriodo('/api/autoridades/comparativo-inegi'),{headers});
  if(comparativo.ok){const c=await comparativo.json();tabla('#indicadores',c.map(x=>[x.anio,x.municipal_dw,x.inegi_estatal,x.fuente_dato]));document.querySelector('#notaComparativo').textContent=[...new Set(c.map(x=>x.nota).filter(Boolean))].join(' ');}
  else{tabla('#indicadores',[['No fue posible cargar los indicadores']]);document.querySelector('#notaComparativo').textContent='No fue posible cargar el comparativo.'}

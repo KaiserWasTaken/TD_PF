@@ -57,8 +57,9 @@ implementados; este último requiere una fuente de colonias vinculable.
 El panel permite filtrar por fecha inicial y final (ambas inclusivas); el filtro
 se comparte entre KPI, vialidades, calidad de datos y reportes. La comparación
 estatal solo se muestra para años completos, porque INEGI aporta un valor anual.
-Los endpoints de tendencia, matriz horaria y puntos críticos aceptan los mismos
-parámetros para su representación en gráficas.
+El panel visualiza tendencia mensual, concentración por día/hora y el ranking de
+vialidades; Chart.js se carga desde jsDelivr. Los endpoints de puntos críticos
+también aceptan el mismo periodo para su futura representación.
 
 La carga de ATUS reconstruye la tabla de hechos y los data marts de siniestros
 públicos y resumen de autoridades. Para reconstruirlos a partir de la base
